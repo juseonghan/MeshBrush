@@ -1,6 +1,6 @@
 # input paths 
-path_to_mesh: /home/juseonghan/consistent_style_transfer/experiments/final/THE_textured_mesh.ply # CT mesh
-path_to_intrinsics: /home/juseonghan/kidney/calibration_results/intrinsics.npy # intrinsics of camera
+path_to_mesh: /home/juseonghan/old_projs/my_meshbrush/data/corrected_normals.ply # CT mesh
+path_to_intrinsics: sample_data/intrinsics.npy # intrinsics of camera
 
 # trajectory generation
 include_threshold: -3          # must be negative
@@ -8,14 +8,14 @@ visualize_traj: 1 # 1 for true 0 for false
 traj_method: sk # bb, sk, or lbc 
 
 # pytorch3d render generation
-subdivide: 0 # 1 for True 0 for False 
+subdivide: 1 # 1 for True 0 for False 
 ambient_light: 0.3
 diffuse_light: 0.5
 specular_light: 0.5
 render_batch_size: 1
 render_img_size: 320
 scale_intrinsics: 1 # 1 for True 0 for False
-mask_path: /home/juseonghan/consistent_style_transfer/data/mask.npy
+mask_path: sample_data/mask.npy
 
 # params
 scheduler: step # cosine or step
@@ -51,5 +51,5 @@ learned_textures_ckpt: /home/juseonghan/consistent_style_transfer/experiments/03
 
 
 # style transfer Pfeiffer et al params
-styletransfer_ckpt: /home/juseonghan/consistent_style_transfer/data/I2I_chkpts/checkpoint5.pt
+styletransfer_ckpt: /home/juseonghan/old_projs/my_meshbrush/data/I2I_chkpts/checkpoint5.pt
 styletransfer_config: /home/juseonghan/laparoscopic-image-2-image-translation/configs/simulation2surgery.yaml

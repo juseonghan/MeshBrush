@@ -20,10 +20,7 @@ from utils  import   (read_config,
 from cv_utils import (generate_trajectory_LBC, 
                       preprocess_pose_and_mesh, 
                       generate_trajectory_SK,
-                      prepare_styletransfer_model,
-                      generate_trajectory_uniform,
                       export_mesh,
-                      inference_styletransfer,
                       down_sample_cameras,
                       mesh_traj_vis,
                       train, 
@@ -39,7 +36,10 @@ def main(args):
 
     # path checking
     assert config_path.exists(), 'configuration file does not exist!'
-    assert output_path.exists(), 'output directory does not exist!'
+    if not output_path.exists():
+        import os 
+        os.mkdir(str(output_path))
+        print(f'Created output folder at {str(output_path)}')
 
     # prepare style transfer model
     config = read_config(config_path)
@@ -49,8 +49,6 @@ def main(args):
         mesh, camera_poses = generate_trajectory_LBC(config) # both poses and mesh is in o3d system
     elif config['traj_method'] == 'sk':
         mesh, camera_poses = generate_trajectory_SK(config)
-    elif config['traj_method'] == 'bb':
-        mesh, camera_poses = generate_trajectory_uniform(config)
     else:
         raise Exception('invalid traj_method in config')
     mesh_scaled, poses_scaled = preprocess_pose_and_mesh(config, mesh, camera_poses) # both in o3d system

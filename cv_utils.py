@@ -44,7 +44,8 @@ from utils import read_intrinsics, read_config, to_uint8, device, torch_to_PIL, 
 from models import RendererWithDepth
 
 # munit trainer 
-from I2I.trainer import MUNIT_Trainer
+import importlib  
+I2I = importlib.import_module("laparoscopic-image-2-image-translation.trainer")
 
 def generate_trajectory_SK(config):
     mesh_path = config['path_to_mesh']
@@ -586,7 +587,7 @@ def prepare_styletransfer_model(config):
     conf_path = config['styletransfer_config']
     conf = read_config(conf_path)
     # style_dim = conf['gen']['style_dim'] # should be 5
-    trainer = MUNIT_Trainer(conf)
+    trainer = I2I.MUNIT_Trainer(conf)
     state_dict = torch.load(checkpoint_path)
     trainer.gen_a.load_state_dict(state_dict['a'])
     trainer.gen_b.load_state_dict(state_dict['b'])
