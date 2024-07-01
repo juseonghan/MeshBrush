@@ -1,0 +1,55 @@
+# input paths 
+path_to_mesh: /home/juseonghan/consistent_style_transfer/experiments/final/THE_textured_mesh.ply # CT mesh
+path_to_intrinsics: /home/juseonghan/kidney/calibration_results/intrinsics.npy # intrinsics of camera
+
+# trajectory generation
+include_threshold: -3          # must be negative
+visualize_traj: 1 # 1 for true 0 for false
+traj_method: sk # bb, sk, or lbc 
+
+# pytorch3d render generation
+subdivide: 0 # 1 for True 0 for False 
+ambient_light: 0.3
+diffuse_light: 0.5
+specular_light: 0.5
+render_batch_size: 1
+render_img_size: 320
+scale_intrinsics: 1 # 1 for True 0 for False
+mask_path: /home/juseonghan/consistent_style_transfer/data/mask.npy
+
+# params
+scheduler: step # cosine or step
+num_cameras: 25
+num_epochs: 500
+report_loss_every: 10
+batch_size: 3
+save_logs_every: 10
+one_sequence: 0 # for debugging purposes, 1 for True, 0 for False 
+
+# training params
+encoding: gaussian # gaussian or none for ablation 
+input_dim: 3
+sigma: 5.0
+clamp: tanh # tanh, softmax, or clamp
+lr: 0.0005
+lr_decay: 0.9
+decay_step: 100
+weight_init: kaiming
+rgb_depth: 2
+width: 256
+n_iters: 3000
+loss: mse 
+depth: 4
+valid_vertices_dist_threshold: 15
+valid_vertices_normal_threshold_min: 100
+valid_vertices_normal_threshold_max: 250
+
+# resume training 
+texlearner_ckpt: /home/juseonghan/consistent_style_transfer/experiments/030524_newgaussian/model.pt
+poses_ckpt: /home/juseonghan/consistent_style_transfer/experiments/030524_newgaussian/train_poses.npy
+learned_textures_ckpt: /home/juseonghan/consistent_style_transfer/experiments/030524_ayberk/learned_textures.pt
+
+
+# style transfer Pfeiffer et al params
+styletransfer_ckpt: /home/juseonghan/consistent_style_transfer/data/I2I_chkpts/checkpoint5.pt
+styletransfer_config: /home/juseonghan/laparoscopic-image-2-image-translation/configs/simulation2surgery.yaml

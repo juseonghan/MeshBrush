@@ -1,0 +1,45 @@
+# input paths 
+path_to_mesh: /home/juseonghan/consistent_style_transfer/experiments/030624_final/textured_mesh_150.ply
+path_to_intrinsics: /home/juseonghan/kidney/calibration_results/intrinsics.npy # intrinsics of camera
+path_to_textures: /home/juseonghan/consistent_style_transfer/experiments/030524_ayberk/learned_textures.pt
+
+# trajectory generation
+include_threshold: -1.5          # must be negative
+visualize_traj: 1 # 1 for true 0 for false
+traj_method: sk # bb, sk, or lbc 
+sample_factor: 20 # if bounding box for traj_method, specify how much sampling you want to do within mesh
+
+# pytorch3d render generation
+subdivide: 0 # 1 for True 0 for False 
+ambient_light: 0.3
+diffuse_light: 0.5
+specular_light: 0.5
+render_batch_size: 10
+render_img_size: 320
+scale_intrinsics: 1
+force_white: 0
+load_textures: 1
+
+# training params
+epochs_per_image: 100
+one_sequence: 0 # for debugging purposes, 1 for True, 0 for False 
+encoding: none # no alternative lol
+input_dim: 3
+sigma: 5.0
+clamp: tanh # tanh, softmax, or clamp
+lr: 0.0005
+lr_decay: 0.9
+decay_step: 100
+weight_init: kaiming
+rgb_depth: 2
+width: 256
+n_iters: 3000
+loss: mse 
+depth: 4
+report_loss_every: 10
+batch_size: 1
+valid_vertices_dist_threshold: 10.0
+
+# style transfer Pfeiffer et al params
+styletransfer_ckpt: /home/juseonghan/laparoscopic-image-2-image-translation/trained_models/outputs/simulation2surgery/checkpoints/gen_00132000.pt
+styletransfer_config: /home/juseonghan/laparoscopic-image-2-image-translation/configs/simulation2surgery.yaml
