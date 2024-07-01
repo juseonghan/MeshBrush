@@ -1,0 +1,3 @@
+[submodule "laparoscopic-image-2-image-translation"]
+	path = laparoscopic-image-2-image-translation
+	url = https://gitlab.com/nct_tso_public/laparoscopic-image-2-image-translation.git
