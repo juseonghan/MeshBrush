@@ -15,11 +15,7 @@ from utils  import   (read_config,
                       prepare_directories, 
                       record_losses, 
                       export_poses,
-                      log_training, 
-                      read_textures,
-                      read_mask, 
-                      extract_imgs, 
-                      save_imgs)
+                      log_training)
 
 from cv_utils import (generate_trajectory_LBC, 
                       preprocess_pose_and_mesh, 
@@ -30,13 +26,8 @@ from cv_utils import (generate_trajectory_LBC,
                       inference_styletransfer,
                       down_sample_cameras,
                       mesh_traj_vis,
-                      train,
-                      train2,
-                      train3, 
-                      train4, 
-                      prepare_coords,
-                      render_batch)
-
+                      train, 
+                      prepare_coords)
 from data import STDataset
 
 from pytorch3d.renderer import TexturesVertex
@@ -81,54 +72,24 @@ def main(args):
 
     mesh_torch3d, poses_scaled = prepare_coords(mesh_scaled, poses_scaled)
     mesh_torch3d = mesh_torch3d.to(device)
-    
-    # manual pytorch3d biz
-    # verts_rgb = torch.ones_like(mesh_torch3d.verts_packed())[None].float()  # (1, V, 3)
-    # verts_rgb = torch.load('/home/juseonghan/consistent_style_transfer/experiments/030524_newgaussian2/learned_textures.pt')
-    # verts_rgb = verts_rgb[None]
-    # tex = TexturesVertex(verts_features=verts_rgb.to(device))
-    # mesh_torch3d.textures = tex
-    texs = read_textures(config['path_to_mesh'])
-    texs.append(texs[-1])
-    texs = np.stack(texs, axis=0)
-    texs = torch.Tensor(texs)[None].to(device)
-    mesh_torch3d.textures = TexturesVertex(verts_features=texs)
-
-    # mesh_torch3d.textures._verts_features_list = torch.ones_like(mesh_torch3d.verts_packed())[None].float()
+    verts_rgb = torch.ones_like(mesh_torch3d.verts_packed())[None].float()  # (1, V, 3)\
+    tex = TexturesVertex(verts_features=verts_rgb.to(device))
+    mesh_torch3d.textures = tex
 
     # renderz 
     print('Starting Renders...')
-    # render_batch_size = int(config['render_batch_size'])
-    # if 'num_cameras' not in config:
-    #     num_iters = math.ceil(len(poses_scaled) / render_batch_size)
-    #     print(f'{num_iters} iterations!')
     
     # initialize training stuff
     TextureModel = TextureLearner(config, args.resume).to(device)
     TextureModel.train()
-    
     loss_fn = read_loss_fn(config)
 
-    
-    # a (num_vertices,), dtype=bool torch tensor that signifies whether or not a vertex has been updated
     white_mesh = mesh_torch3d.clone()
     verts_rgb = torch.ones_like(mesh_torch3d.verts_packed())[None].float()  # (1, V, 3)
     tex = TexturesVertex(verts_features=verts_rgb.to(device))
     white_mesh.textures = tex
     learned_textures = torch.ones_like(mesh_torch3d.verts_packed())
 
-    """
-    NEW APPROACH
-    prepare all of the rendered and style transferred images
-    use a custom dataset to load in the pairs
-    train over a bunch since for training, we just need to do 
-    image-to-image MSE 
-    definitely takes more vram, but gets rid of the idea that
-    we are overfitting the entire mesh into one image
-    if we are optimizing it over many iterations
-    """
-    # try training with light sources
-    light_intensities = torch.rand(len(poses_scaled), 6)
     batch_size = int(config['batch_size'])
     dataset = STDataset(config, white_mesh, poses_scaled)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -161,7 +122,7 @@ def main(args):
     losses_vs_epochs = []
     for epoch in range(num_epochs):
         
-        mesh_torch3d, losses = train4(config, 
+        mesh_torch3d, losses = train(config, 
                                     mesh_torch3d, 
                                     TextureModel,
                                     dataloader,

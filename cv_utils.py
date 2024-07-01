@@ -95,95 +95,8 @@ def generate_trajectory_SK(config):
             break
 
     mesh = o3d.io.read_triangle_mesh(mesh_path)
-    return mesh, cam_poses
+    return mesh, cam_poses 
 
-def generate_trajectory_SK_in_separate_folders(config):
-    mesh_path = config['path_to_mesh']
-    assert Path(mesh_path).exists(), 'path to mesh in config file invalid'
-    mesh = trimesh.load_mesh(str(mesh_path))
-
-    fixed = skeletor.pre.fix_mesh(mesh, remove_disconnected=5, inplace=False)
-    skel = skeletor.skeletonize.by_wavefront(fixed, waves=1, step_size=1)
-
-    pts = np.array(skel.vertices)
-    inds = np.array(skel.edges)
-    # skel.show(mesh=True)
-
-    cam_poses = []
-    for ind in tqdm(inds):
-        pt1, pt2 = pts[ind[0]], pts[ind[1]]
-        W = (pt2 - pt1) / np.linalg.norm(pt2 - pt1) # the unit vector that we are generating the spiral from
-        U = np.cross(W, np.array([1,0,0]))
-        U = U / np.linalg.norm(U) # unit vector for sanity's sake
-        V = np.cross(W, U) / np.linalg.norm(np.cross(W, U))
-        
-        # radius a, b/a pitch. let's say we want two full rotations for a line segment. 
-        # then the pitch should be half of our line segment length.  
-        a = 0.5
-        b = 0.5 * a * np.linalg.norm(pt2 - pt1)
-        # number of samples should scale according to the length of our line segment 
-        num_samples = int(20 * np.linalg.norm(pt2 - pt1))
-        one_seq = []
-        for t in np.linspace(0, 4 * np.pi, num_samples):
-            cam_pos = (a * np.cos(t)) * U + (a * np.sin(t)) * V + (b*t) * W
-            # translate the camera pose to where we were originally
-            cam_pos += pt1 
-
-            # check if it's inside to make sure we're not adding any silly points 
-            # query_pt = o3d.core.Tensor(cam_pos[np.newaxis,:], dtype=o3d.core.Dtype.Float32)
-            # if scene_raycast.compute_signed_distance(query_pt).item() > -1.2:
-            #     continue 
-
-            # to get the rotation, use axis angle where the axis is the forward vector, and rotate
-            # the left vector. then recalculate the new up vector with cross prod. use rodriguez formula
-            new_left = np.cos(t) * U + np.sin(t)*(np.cross(W, U)) + (1 - np.cos(t)) * (np.dot(W, U)) * W
-            new_up = np.cross(W, new_left)
-            Rot = np.hstack((new_left[:,np.newaxis], new_up[:,np.newaxis], W[:,np.newaxis]))
-            SE3 = np.block([[Rot, cam_pos[:,np.newaxis]],
-                            [0.,0.,0.,1.]])
-            one_seq.append(SE3)  
-        cam_poses.append(one_seq)
-        if int(config['one_sequence']) == 1 and len(cam_poses) != 0:
-            print('generating only one sequence')
-            break
-    
-    mesh = o3d.io.read_triangle_mesh(mesh_path)
-    return mesh, cam_poses
-
-
-def generate_trajectory_uniform(config):
-    mesh_path = config['path_to_mesh']
-    assert Path(mesh_path).exists(), 'path to mesh in config file invalid'
-    mesh = o3d.io.read_triangle_mesh(mesh_path)
-    pc = mesh.sample_points_uniformly(number_of_points=40_000)
-
-    # find bounding box around point cloud 
-    oriented_bb = o3d.geometry.OrientedBoundingBox().create_from_points(pc.points)
-    axis_aligned_bb = oriented_bb.get_axis_aligned_bounding_box()
-
-    # sample points uniformly from aa_bb
-    min_vertex = axis_aligned_bb.get_min_bound() # (3, 1) numpy 
-    max_vertex = axis_aligned_bb.get_max_bound() # (3, 1) numpy
-
-    N = int(config['sample_factor'])
-
-    xs = np.linspace(min_vertex[0], max_vertex[0], N)
-    ys = np.linspace(min_vertex[1], max_vertex[1], N)
-    zs = np.linspace(min_vertex[2], max_vertex[2], N)
-    x, y, z = np.meshgrid(xs, ys, zs, indexing='xy')
-    t_vecs = [np.array([x[i,j,k], y[i,j,k], z[i,j,k]]) for i in range(N) for j in range(N) for k in range(N)]
-    cam_poses = []
-    directional_rots = get_directional_rots()
-
-    for t in t_vecs:
-        for rot in directional_rots:
-            SE3 = np.eye(4)
-            SE3[:3,:3] = rot
-            SE3[:3, 3] = t[None]
-            cam_poses.append(SE3)
-
-    return mesh, cam_poses
-    
 def get_directional_rots():
     rots = []
     rots.append(np.array([[-1, 0, 0], [0, -1, 0], [0, 0, 1]])) # forward
@@ -746,102 +659,7 @@ def prepare_coords(mesh, poses):
         output_poses.append(pose)
     return output_mesh, output_poses
 
-"""
-    Given the mesh (its vertices and textures), and MLP w/ camera pose,
-    optimize the textures to match the ST image
-"""
-def train(config, mesh, model, optim, checked_idxs, loss_fn, Rs, ps, ST_image, original_render, schedule_bool, scheduler, save_mesh_path, device):
-
-    num_iterations = int(config['epochs_per_image'])
-    batch_size = int(config['render_batch_size'])
-    report_loss_every = int(config['report_loss_every'])
-
-    # run forward pass and apply the predicted textures
-    losses = []
-    visible_verts_indices = get_verts_to_update(config, mesh, Rs, ps)
-
-    # make sure we haven't already updated these vertices
-    visible_verts_indices = torch.logical_or(visible_verts_indices, checked_idxs)
-    visible_verts = mesh.verts_packed()[visible_verts_indices]
-    
-    # if we have no vertices to update (usually because we're close to a previous pose)
-    # then we should just return what we have lol
-    if visible_verts.numel() == 0:
-        return mesh, None, visible_verts_indices
-    
-    # start learning
-    for i in range(num_iterations):
-        preds = model(visible_verts) # should be (N', 3) where N' < N (number of total verts)
-        # new_texs = torch.ones_like(mesh.verts_packed())
-        new_texs = copy.deepcopy(mesh.textures._verts_features_list)
-        new_texs[visible_verts_indices] = preds
-        textures = TexturesVertex(verts_features=new_texs[None, ...])
-        mesh.textures = textures 
-
-        # re-render, ST_image is (B, 3, H, W), backpropagate
-        render_rgb, _  = render_batch(config, mesh, Rs, ps, 1, device=device) # B, H, W, 4
-        render_rgb = render_rgb[:,:,:,:3].permute(0, 3, 1, 2) # ignore alpha channel, becomes (B, 3, H, W)
-        render_rgb = torchvision.transforms.functional.resize( render_rgb, (256, 256), Image.BILINEAR )
-        loss = loss_fn(render_rgb, ST_image)
-        optim.zero_grad(); loss.backward(); optim.step()
-        if schedule_bool:
-            scheduler.step()
-        if i % report_loss_every == 0:
-            print(f'Current Loss for iteration {i}/{num_iterations}: {loss.item()}')
-            visualize_training(original_render, ST_image, render_rgb, save_mesh_path, batch_size)
-            losses.append(loss.item())
-    
-    return mesh, losses, visible_verts_indices
-
-def train2(config, mesh, model, optim, loss_fn, Rs, ps, ST_image, original_render, schedule_bool, scheduler, save_mesh_path, device):
-
-    num_iterations = int(config['epochs_per_image'])
-    batch_size = int(config['render_batch_size'])
-    report_loss_every = int(config['report_loss_every'])
-
-    # run forward pass and apply the predicted textures
-    losses = []
-    visible_verts_indices = get_verts_to_update(config, mesh, Rs, ps)
-    visible_verts = mesh.verts_packed()[visible_verts_indices]
-
-    # make sure we haven't already updated these vertices
-    # visible_verts_indices = torch.logical_or(visible_verts_indices, checked_idxs)
-    # visible_verts = mesh.verts_packed()[visible_verts_indices]
-    
-    # if we have no vertices to update (usually because we're close to a previous pose)
-    # then we should just return what we have lol
-    # if visible_verts.numel() == 0:
-    #     return mesh, None, visible_verts_indices
-    
-    # start learning
-    for i in range(num_iterations):
-        preds = model(mesh.verts_packed()) # should be (N', 3) where N' < N (number of total verts)
-        # preds = model(visible_verts)
-        # new_texs = torch.ones_like(mesh.verts_packed())
-        # new_texs[visible_verts_indices] = preds
-        tex = TexturesVertex(verts_features=preds[None, ...])
-        mesh.textures = tex 
-
-        # re-render, ST_image is (B, 3, H, W), backpropagate
-        render_rgb, _  = render_batch(config, mesh, Rs, ps, 1, device=device) # B, H, W, 4
-        render_rgb = render_rgb[:,:,:,:3].permute(0, 3, 1, 2) # ignore alpha channel, becomes (B, 3, H, W)
-        render_rgb = torchvision.transforms.functional.resize( render_rgb, (256, 256), Image.BILINEAR )
-        loss = loss_fn(render_rgb, ST_image)
-
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
-
-        if schedule_bool:
-            scheduler.step()
-        if i % report_loss_every == 0:
-            print(f'Current Loss for iteration {i}/{num_iterations}: {loss.item()}')
-            visualize_training(original_render, ST_image, render_rgb, save_mesh_path, batch_size)
-            losses.append(loss.item())
-    
-    return mesh, preds, losses, visible_verts_indices
-
-def train3(config, mesh, model, dataloader, loss_fn, optim, scheduler, save_mesh_path):
+def train(config, mesh, model, dataloader, loss_fn, optim, scheduler, save_mesh_path):
     
     losses = []
     mask = read_mask(config)
@@ -878,13 +696,13 @@ def train3(config, mesh, model, dataloader, loss_fn, optim, scheduler, save_mesh
 
         # if i % report_loss_every == 0:
         #     print(f'Current Loss for iteration {i}/{num_iterations}: {loss.item()}')
-        visualize_training2(ST_image, render_rgb, heatmap, _mask, save_mesh_path, batch_size)
+        visualize_st_preds_hm(ST_image, render_rgb, heatmap, _mask, save_mesh_path, batch_size)
         # visualize_training3(OG_render, ST_image, render_rgb, heatmap, _mask, save_mesh_path, batch_size)
         losses.append(loss.item())
     
     return mesh, losses
 
-def train4(config, mesh, model, dataloader, loss_fn, optim, scheduler, save_mesh_path):
+def run_inference(config, mesh, model, dataloader, loss_fn, optim, scheduler, save_mesh_path):
     
     losses = []
     mask = read_mask(config)
@@ -922,7 +740,7 @@ def train4(config, mesh, model, dataloader, loss_fn, optim, scheduler, save_mesh
         # if i % report_loss_every == 0:
         #     print(f'Current Loss for iteration {i}/{num_iterations}: {loss.item()}')
         # visualize_training2(ST_image, render_rgb, heatmap, _mask, save_mesh_path, batch_size)
-        visualize_training3(OG_render, ST_image, render_rgb, heatmap, _mask, save_mesh_path, batch_size)
+        visualize_og_st_preds_hm(OG_render, ST_image, render_rgb, heatmap, _mask, save_mesh_path, batch_size)
         losses.append(loss.item())
     
     return mesh, losses
@@ -950,7 +768,7 @@ def view_weighted_loss(config, mesh, loss_fn, render_rgb, mask, ST_image, R_batc
     result = torch.mean(weighted_loss)
     return result, heatmap
 
-def visualize_training3(og, st, preds, heatmap, mask, save_mesh_path, batch_size):   
+def visualize_og_st_preds_hm(og, st, preds, heatmap, mask, save_mesh_path, batch_size):   
     for i in range(batch_size):
         _mask = mask[i,...]
         _og = og[i,0,:,:,:3].detach().cpu().numpy()
@@ -971,9 +789,8 @@ def visualize_training3(og, st, preds, heatmap, mask, save_mesh_path, batch_size
         cv.imwrite('preds.png', _preds)
         cv.imwrite('heatmap.png', _heatmap)
         breakpoint()
-        
 
-def visualize_training2(st, preds, heatmap, mask, save_mesh_path, batch_size):   
+def visualize_st_preds_hm(st, preds, heatmap, mask, save_mesh_path, batch_size):   
     for i in range(batch_size):
         _mask = mask[i,...]
         _st = st[i, ...].detach().cpu().permute(1, 2, 0).numpy()
@@ -1003,29 +820,6 @@ def view_ST_outputs(og, st):
     og = cv.resize(og, (256, 256))
     img = np.vstack((og, st))
     cv.imwrite('view_ST.png', img)
-
-"""
-    Helper function to combine original rendered, style transferred, and learned texture renders
-    to visualize how training is going (hopefully well!)
-"""
-def visualize_training(og, st, preds, save_mesh_path, batch_size):
-    for i in range(batch_size):
-        _og = og[i, :,:, :3].detach().cpu().numpy()
-        og_small = cv.resize(_og, (256, 256))
-        og_small = cv.cvtColor(og_small, cv.COLOR_RGB2BGR)
-        _st = st[i, ...].detach().cpu().permute(1, 2, 0).numpy()
-        _st = cv.cvtColor(_st, cv.COLOR_RGB2BGR)
-        _preds = preds[i, ...].detach().cpu().permute(1, 2, 0).numpy()
-        _preds = cv.cvtColor(_preds, cv.COLOR_RGB2BGR)
-        if i == 0:
-            base = np.vstack((to_uint8(og_small), to_uint8(_st), to_uint8(_preds)))
-        else:
-            add_on = np.vstack((to_uint8(og_small), to_uint8(_st), to_uint8(_preds)))
-            base = np.hstack((base, add_on))
-    save_name = str(save_mesh_path / 'visualize_training.jpg')
-    # resize lol
-    base = cv.resize(base, (1536, 768))
-    cv.imwrite(save_name, base)
 
 def rescale_to_255(arr):
     a = 255.0 * arr

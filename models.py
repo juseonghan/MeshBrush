@@ -50,28 +50,6 @@ class FourierFeatureTransform(torch.nn.Module):
         # res = 2 * np.pi * res
         x_proj = torch.matmul(self.twopi * x, self.B)
         return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], -1)
-
-# https://arxiv.org/abs/2104.09125
-class ProgressiveEncoding(nn.Module):
-    
-    def __init__(self, mapping_size, T, d=3, apply=True):
-        super(ProgressiveEncoding, self).__init__()
-        self._t = 0
-        self.n = mapping_size
-        self.T = T
-        self.d = d
-        self._tau = 2 * self.n / self.T
-        self.indices = torch.tensor([i for i in range(self.n)], device=device)
-        self.apply = apply
-
-    def forward(self, x):
-        alpha = ((self._t - self._tau * self.indices) / self._tau).clamp(0, 1).repeat(
-            2)  # no need to reduce d or to check cases
-        if not self.apply:
-            alpha = torch.ones_like(alpha, device=device)  ## this layer means pure ffn without progress.
-        alpha = torch.cat([torch.ones(self.d, device=device), alpha], dim=0)
-        self._t += 1
-        return x * alpha
     
 def xavier_init(m):
     if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
